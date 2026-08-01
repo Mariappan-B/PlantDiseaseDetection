@@ -55,9 +55,13 @@ def predict():
         return jsonify({"error": "The selected file is not a valid image."}), 400
     except FileNotFoundError as error:
         return jsonify({"error": str(error)}), 503
-    except Exception:
+    except Exception as e:
         app.logger.exception("Prediction failed")
-        return jsonify({"error": "Prediction could not be completed. Please try another image."}), 500
+        return jsonify({
+            "error": str(e),
+            "type": type(e).__name__
+        }), 500
+
     finally:
         if temp_path and os.path.exists(temp_path):
             os.remove(temp_path)

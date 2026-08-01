@@ -18,23 +18,43 @@ IMAGE_SIZE = 224
 
 @lru_cache(maxsize=1)
 def get_model() -> tf.keras.Model:
-    """Load the saved Keras model only once per Flask process."""
+    """Load the trained model only once."""
     if not MODEL_PATH.exists():
         raise FileNotFoundError(
-            "Trained model not found. Run train.py before making predictions."
+            f"Model not found: {MODEL_PATH}"
         )
+
     return tf.keras.models.load_model(MODEL_PATH)
 
 
 def predict_image(image_path: str | Path) -> dict[str, str | float]:
-    """Predict a PlantVillage class and return API-ready disease information."""
-    image = Image.open(image_path).convert("RGB").resize((IMAGE_SIZE, IMAGE_SIZE))
-    batch = np.expand_dims(np.asarray(image, dtype=np.float32), axis=0)
-    probabilities = get_model().predict(batch, verbose=0)[0]
+    """Run prediction on a leaf image."""
+
+    image = (
+        Image.open(image_path)
+        .convert("RGB")
+        .resize((IMAGE_SIZE, IMAGE_SIZE))
+    )
+
+    image = np.asarray(image, dtype=np.float32)
+
+    # Same preprocessing used during EfficientNet training
+    image = tf.keras.applications.efficientnet.preprocess_input(image)
+
+    batch = np.expand_dims(image, axis=0)
+
+    model = get_model()
+
+    probabilities = model.predict(batch, verbose=0)[0]
+
     class_index = int(np.argmax(probabilities))
+
     class_name = load_class_names()[class_index]
+
     plant, disease = readable_label(class_name)
+
     details = disease_details(plant, disease)
+
     return {
         "plant": plant,
         "disease": disease,
