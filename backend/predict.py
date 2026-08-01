@@ -1,4 +1,4 @@
-"""Model loading and image inference functions."""
+"""TensorFlow Lite model loading and image inference."""
 
 from __future__ import annotations
 
@@ -12,23 +12,30 @@ from PIL import Image
 from utils import MODEL_DIR, disease_details, load_class_names, readable_label
 
 
-MODEL_PATH = MODEL_DIR / "plant_disease_model.keras"
+MODEL_PATH = MODEL_DIR / "plant_disease_model.tflite"
 IMAGE_SIZE = 224
 
 
 @lru_cache(maxsize=1)
-def get_model() -> tf.keras.Model:
-    """Load the trained model only once."""
+def get_interpreter():
+    """Load the TensorFlow Lite model only once."""
+
     if not MODEL_PATH.exists():
         raise FileNotFoundError(
             f"Model not found: {MODEL_PATH}"
         )
 
-    return tf.keras.models.load_model(MODEL_PATH)
+    interpreter = tf.lite.Interpreter(model_path=str(MODEL_PATH))
+    interpreter.allocate_tensors()
+
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
+
+    return interpreter, input_details, output_details
 
 
 def predict_image(image_path: str | Path) -> dict[str, str | float]:
-    """Run prediction on a leaf image."""
+    """Predict plant disease using TensorFlow Lite."""
 
     image = (
         Image.open(image_path)
@@ -38,14 +45,22 @@ def predict_image(image_path: str | Path) -> dict[str, str | float]:
 
     image = np.asarray(image, dtype=np.float32)
 
-    # Same preprocessing used during EfficientNet training
     image = tf.keras.applications.efficientnet.preprocess_input(image)
 
-    batch = np.expand_dims(image, axis=0)
+    image = np.expand_dims(image, axis=0)
 
-    model = get_model()
+    interpreter, input_details, output_details = get_interpreter()
 
-    probabilities = model.predict(batch, verbose=0)[0]
+    interpreter.set_tensor(
+        input_details[0]["index"],
+        image,
+    )
+
+    interpreter.invoke()
+
+    probabilities = interpreter.get_tensor(
+        output_details[0]["index"]
+    )[0]
 
     class_index = int(np.argmax(probabilities))
 
@@ -58,6 +73,9 @@ def predict_image(image_path: str | Path) -> dict[str, str | float]:
     return {
         "plant": plant,
         "disease": disease,
-        "confidence": round(float(probabilities[class_index] * 100), 2),
+        "confidence": round(
+            float(probabilities[class_index] * 100),
+            2,
+        ),
         **details,
     }
